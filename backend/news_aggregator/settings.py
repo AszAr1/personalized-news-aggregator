@@ -78,12 +78,12 @@ WSGI_APPLICATION = 'news_aggregator.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
+        'ENGINE': 'django.db.backends.postgresql',
         'USER': 'root',
         'NAME': 'newsdb',
         'PASSWORD': 'pa!!w0rd',
         'HOST': "db",
-        'PORT': "3306",
+        'PORT': "5432",
     }
 }
 
