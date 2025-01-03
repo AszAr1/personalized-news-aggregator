@@ -16,6 +16,7 @@ ALLOWED_HOSTS = []
 
 
 INSTALLED_APPS = [
+    'news',
     'users',
     'rest_framework',
     'rest_framework_simplejwt',

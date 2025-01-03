@@ -11,14 +11,14 @@ from .models import CustomUser
 
 class CustomUserSerializer(ModelSerializer):
     id = SerializerMethodField(read_only=True)
-    see_more = HyperlinkedIdentityField(view_name='profile', lookup_field='id')
+    see_more = HyperlinkedIdentityField(view_name='users-detail', lookup_field='id')
 
     class Meta:
         model = CustomUser
         fields = ["id", "username", "password", "email", "first_name", "last_name", 'see_more', ]
         extra_kwargs = {'password': {'write_only': True}}
 
-    def get_id(self, obj: CustomUser) -> UUID | None:
+    def get_id(self, obj: Meta.model) -> UUID | None:
         if not hasattr(obj, 'id') or not isinstance(obj, self.Meta.model):
             return None
 
