@@ -1,25 +1,27 @@
 version: '3.8'
 services:
-  db:
-    image: mysql
-    environment:
-      - MYSQL_ROOT_PASSWORD=pa!!w0rd
-      - MYSQL_PORT=3306
-      - MYSQL_DATABASE=newsdb
-    volumes:
-      - db-data:/var/lib/mysql
-  back:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: backend
-    command: python manage.py runserver 0.0.0.0:8000
-    ports:
-      - "8000:8000"
-    depends_on:
-      - db
-    volumes:
-      - ./backend:/src/
+    db:
+      image: postgres
+      environment:
+        - POSTGRES_USER=root
+        - POSTGRES_PASSWORD=pa!!w0rd
+        - POSTGRES_DB=newsdb
+      volumes:
+        - db-data:/var/lib/postgresql/data
+      ports:
+        - "5432:5432"
+    back:
+      build:
+        context: ./backend
+        dockerfile: Dockerfile
+      image: backend
+      command: python manage.py runserver 0.0.0.0:8000
+      ports:
+        - "8000:8000"
+      depends_on:
+        - db
+      volumes:
+        - ./backend:/src/
 
 volumes:
   db-data:

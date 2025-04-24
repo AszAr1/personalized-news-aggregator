@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  front:
+    build:
+      context: .
+      dockerfile: Dockerfile  # Ensure the Dockerfile is specified correctly if needed
+    image: clone-frontend
+    volumes:
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "3001:3000"
+    command: npm run dev
