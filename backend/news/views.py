@@ -148,7 +148,6 @@ class ArticleSearchAPIView(ListAPIView):
 
     def list(self, request: Request, *args, **kwargs):
         search_query = request.query_params.get('query', None)
-        print(f"{search_query=}")
         if not search_query:
             return Response(
                 data={
