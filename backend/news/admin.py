@@ -4,7 +4,16 @@ from .models import Article, Source, Category
 
 
 class ArticleAdmin(admin.ModelAdmin):
-    fields = ('title', 'body', 'url', 'image', 'source', 'category', 'published_at')
+    fields = (
+        'title',
+        'url',
+        "image",
+        'source',
+        'category',
+        'published_at'
+        'views_count',
+        'created_at',
+    )
 
 
 class SourceAdmin(admin.ModelAdmin):

@@ -4,7 +4,7 @@ from django.db import models
 
 class Source(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
-    link = models.TextField()
+    link = models.URLField(max_length=64)
 
     class Meta:
         verbose_name = 'Source'
@@ -16,7 +16,7 @@ class Source(models.Model):
 
 class Category(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
-    name = models.CharField(max_length=32)
+    name = models.CharField(max_length=32, db_index=True)
 
     class Meta:
         verbose_name = 'Category'
@@ -28,23 +28,22 @@ class Category(models.Model):
 
 class Article(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
-    title = models.TextField()
-    body = models.TextField()
-    url = models.TextField()
-    image = models.ImageField(null=True, blank=True)
+    title = models.CharField(max_length=128)
+    url = models.URLField()
+    image = models.URLField()
     source = models.ForeignKey(Source, on_delete=models.CASCADE)
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
     published_at = models.DateField()
+    views_count = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = 'Article'
         verbose_name_plural = 'Articles'
 
+        indexes = [
+            models.Index(fields=['category', 'created_at']),
+        ]
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.title}, {self.published_at}, {self.source})"
-
-
-# class Bookmark(models.Model):
-#     pass
-
