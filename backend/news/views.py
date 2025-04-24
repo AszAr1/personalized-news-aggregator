@@ -1,70 +1,48 @@
+import asyncio as aio
+from datetime import datetime, timezone
+from typing import List
+
 from rest_framework.generics import ListAPIView, CreateAPIView, RetrieveUpdateDestroyAPIView
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework import status
-from django.db.models import Q
 
-from users.models import CustomUser
 from .models import Article, Category, Source
-from .serializers import ArticleSerializer, CategorySerializer, SourceSerializer
-from .parsers import BBCParser, ABCParser, NBCParser
+from .managers import NewsManager
+from .pagination import CustomPagesNumberPagination
+from .serializers import (
+    GetUpdateDeleteArticleSerializer,
+    CreateArticleSerializer,
+    CategorySerializer,
+    SourceSerializer
+)
 
 
 class ArticleListAPIView(ListAPIView):
     queryset = Article.objects.all()
-    serializer_class = ArticleSerializer
+    serializer_class = GetUpdateDeleteArticleSerializer
     permission_classes = [AllowAny]
+    pagination_class = CustomPagesNumberPagination
 
-    def get_news_by_category(self, number_of_articles: int, category: str) -> list[dict]:
-        bbc_parser = BBCParser()
-        abc_parser = ABCParser()
-        nbc_parser = NBCParser()
+    def update_articles_from_parsers(self, categories: list[str] | None) -> Response | None:
+        latest_news = aio.run(NewsManager.get_news_by_category(20, categories)) if categories \
+            else aio.run(NewsManager.get_news(20))
 
-        bbc_news = bbc_parser.getNewsByCategory(number_of_articles, category)
-        abc_news = abc_parser.getNewsByCategory(number_of_articles, category)
-        nbc_news = nbc_parser.getNewsByCategory(number_of_articles, category)
+        latest_article: Article = Article.objects.order_by('created_at').last() if not categories else \
+            Article.objects.select_related('category').filter(category__name__in=categories).order_by(
+                'created_at').last()
 
-        news = bbc_news + abc_news + nbc_news
-        news.sort(key=lambda x: x['published_at'])
-
-        return news
-
-    def get_news(self, number_of_articles: int) -> list[dict]:
-        bbc_parser = BBCParser()
-        abc_parser = ABCParser()
-        nbc_parser = NBCParser()
-
-        bbc_news = bbc_parser.getNews(number_of_articles)
-        abc_news = abc_parser.getNews(number_of_articles)
-        nbc_news = nbc_parser.getNews(number_of_articles)
-
-        news = bbc_news + abc_news + nbc_news
-        news.sort(key=lambda x: x['published_at'])
-
-        return news
-
-    def list(self, request: Request, *args, **kwargs):
-        category = request.query_params.get('category', None)
-        if category and category not in Category.objects.all():
-            return Response(
-                data={
-                    'error': f"No such category: {category}"
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if category:
-            latest_news = self.get_news_by_category(20, category)
-        else:
-            latest_news = self.get_news(20)
-
-        latest_article: Article = Article.objects.order_by('created_at').last()
         latest_article_index = -1
         if latest_article:
-            latest_article_index = latest_news.index([n for n in latest_news if n['title'] == latest_article.title][0])
+            for i, n in enumerate(latest_news):
+                if str(n['title']).strip() == latest_article.title:
+                    latest_article_index = i
 
-        for article in latest_news[latest_article_index+1:]:
+        for article in latest_news[latest_article_index + 1:]:
+            if Article.objects.filter(title=article['title']).exists():
+                continue
+
             category_obj: Category = Category.objects.filter(name=article['category']).first()
             if not category_obj:
                 return Response(
@@ -73,6 +51,7 @@ class ArticleListAPIView(ListAPIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
+
             article['category'] = category_obj.id
 
             source_obj: Source = Source.objects.filter(link=article['source']).first()
@@ -83,13 +62,35 @@ class ArticleListAPIView(ListAPIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
+
             article['source'] = source_obj.id
 
-            serializer = ArticleSerializer(data=article)
+            serializer = CreateArticleSerializer(data=article)
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
-        queryset = self.filter_queryset(self.get_queryset())
+        return None
+
+    def list(self, request: Request, *args, **kwargs):
+        categories_value = request.query_params.get('categories', None)
+        categories = [
+            category_value.strip() for category_value in categories_value.split(",")
+        ] if categories_value else None
+
+        last_update = request.query_params.get('last-update', None)
+        last_update_time = datetime.strptime(last_update, '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc) \
+            if last_update else None
+
+        last_update_expired = (
+                last_update_time and
+                (datetime.now(timezone.utc) - last_update_time).total_seconds() >= 60 * 20
+        )
+        if last_update_expired or not last_update_time:
+            response = self.update_articles_from_parsers(categories)
+            if response:
+                return response
+
+        queryset = self.get_queryset(categories=categories)
 
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -99,42 +100,67 @@ class ArticleListAPIView(ListAPIView):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    def get_queryset(self, categories: List[str] | None = None):
+        if categories:
+            return (
+                Article.objects
+                .prefetch_related('users_favorited', "users_liked", 'users_disliked')
+                .select_related('category', 'source')
+                .filter(category__name__in=categories)
+                .order_by("created_at")
+                .all()
+            )
+
+        return (
+            Article.objects
+            .prefetch_related('users_favorited', "users_liked", 'users_disliked')
+            .select_related('category', 'source')
+            .order_by("created_at")
+            .all()
+        )
+
 
 class ArticleDetailAPIView(RetrieveUpdateDestroyAPIView):
     queryset = Article.objects.all()
-    serializer_class = ArticleSerializer
+    serializer_class = GetUpdateDeleteArticleSerializer
     permission_classes = [AllowAny]
     lookup_field = 'id'
+
+    def get_queryset(self):
+        return (
+            Article.objects
+            .prefetch_related('users_favorited', "users_liked", 'users_disliked')
+            .select_related('category', 'source')
+            .all()
+        )
 
 
 class ArticleCreateAPIView(CreateAPIView):
     queryset = Article.objects.all()
-    serializer_class = ArticleSerializer
+    serializer_class = CreateArticleSerializer
     permission_classes = [AllowAny]
 
 
 class ArticleSearchAPIView(ListAPIView):
     queryset = Article.objects.all()
-    serializer_class = ArticleSerializer
+    serializer_class = GetUpdateDeleteArticleSerializer
     permission_classes = [AllowAny]
 
     def list(self, request: Request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        search_query = request.query_params.get('query', "Elon+Musk")
-        parser = BBCParser()
+        search_query = request.query_params.get('query', None)
+        print(f"{search_query=}")
+        if not search_query:
+            return Response(
+                data={
+                    'error': f"No query"
+                },
+                status=status.HTTP_400_BAD_REQUEST
 
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            )
 
-        serializer = self.get_serializer(
-            Article.objects
-            .filter(Q(source__link__startswith="https://abcnews.go.com") & Q(category__name="Business"))
-            .select_related('source', 'category').order_by('updated_at').last(),
-            many=False
-        )
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        search_results = aio.run(NewsManager.search(search_query))
+
+        return Response(data=search_results, status=status.HTTP_200_OK)
 
 
 class CategoryListAPIView(ListAPIView):
